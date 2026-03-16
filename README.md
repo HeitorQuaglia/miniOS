@@ -1,6 +1,6 @@
 # miniOS
 
-Simulador educacional de hardware e sistema operacional que demonstra como memória, CPU e compiladores funcionam por baixo dos panos. Inclui um modelo de memória unificada com Stack e Heap, um processador com 18 instruções de pseudo-assembly, e um compilador completo para uma linguagem de alto nível.
+Simulador educacional de hardware e sistema operacional que demonstra como memória, CPU e compiladores funcionam por baixo dos panos. Inclui um modelo de memória unificada com Stack e Heap, um processador com 20 instruções de pseudo-assembly, e um compilador completo para uma linguagem de alto nível Turing Complete.
 
 ## Estrutura do projeto
 
@@ -16,7 +16,7 @@ miniOS/
 │
 ├── cpu/                  # Simulador de CPU
 │   ├── types.ts          # Opcodes, operandos, modos de endereçamento
-│   ├── registers.ts      # Estado da CPU (R0-R3, PC, ZF)
+│   ├── registers.ts      # Estado da CPU (R0-R3, PC, ZF, NF)
 │   ├── executor.ts       # Execução de cada instrução
 │   └── index.ts          # Fachada: createCpu()
 │
@@ -73,7 +73,7 @@ Se HP ultrapassar SP, uma exceção de **colisão de memória** é lançada.
 ### Registradores
 - **Propósito geral:** `R0`, `R1`, `R2`, `R3`
 - **Especiais (somente leitura):** `SP`, `FP`, `HP`
-- **Flags:** `ZF` (zero flag, setada por `CMP`)
+- **Flags:** `ZF` (zero flag, setada por `CMP`), `NF` (negative flag, setada por `CMP` quando `a < b`)
 
 ### Modos de endereçamento
 | Modo | Exemplo | Descrição |
@@ -84,7 +84,7 @@ Se HP ultrapassar SP, uma exceção de **colisão de memória** é lançada.
 | `memoryDirect` | `[100]` | Endereço fixo na memória |
 | `memoryRegister` | `[R2]` | Endereço contido no registrador |
 
-### Instruções (18 opcodes)
+### Instruções (20 opcodes)
 
 **Transferência de dados:**
 | Instrução | Operação |
@@ -104,7 +104,7 @@ Se HP ultrapassar SP, uma exceção de **colisão de memória** é lançada.
 **Comparação:**
 | Instrução | Operação |
 |---|---|
-| `CMP a, b` | `ZF = (a == b)` |
+| `CMP a, b` | `ZF = (a == b)`, `NF = (a < b)` |
 
 **Stack:**
 | Instrução | Operação |
@@ -118,6 +118,8 @@ Se HP ultrapassar SP, uma exceção de **colisão de memória** é lançada.
 | `JMP addr` | PC = addr |
 | `JZ addr` | Se ZF: PC = addr |
 | `JNZ addr` | Se !ZF: PC = addr |
+| `JLT addr` | Se NF: PC = addr (a < b) |
+| `JGE addr` | Se !NF: PC = addr (a >= b) |
 | `CALL addr` | Salva frame (FP + retorno), PC = addr |
 | `RET` | Restaura frame, PC = endereço de retorno |
 
@@ -144,22 +146,36 @@ Source code → Lexer → Tokens → Parser → AST → Codegen → Instruction[
 ### Sintaxe
 
 ```
-// Tipos primitivos: number, char
-// Referências: ref<NomeDoStruct>
+// Comentário de linha
+# Também comentário de linha
+/* Comentário
+   de bloco */
 
 struct Point {
     x: number
     y: number
 }
 
-fn sum(a: number, b: number): number {
-    return a + b
+fn factorial(n: number): number {
+    if (n <= 1) {
+        return 1
+    }
+    return n * factorial(n - 1)
 }
 
 fn main() {
+    // Variáveis e while loop
+    sum: number = 0
+    i: number = 1
+    while (i <= 10) {
+        sum = sum + i
+        i = i + 1
+    }
+
+    // Structs e heap
     p: ref<Point> = alloc(Point)
-    p.x = 10
-    p.y = 20
+    p.x = sum
+    p.y = factorial(5)
     free(p)
 }
 ```
@@ -168,10 +184,15 @@ fn main() {
 - **Structs** com campos tipados
 - **Funções** com parâmetros e tipo de retorno
 - **Variáveis locais** com declaração tipada (`nome: tipo = valor`)
+- **Condicionais** `if`/`else if`/`else` com blocos
+- **Loops** `while (condição) { ... }`
+- **Operadores de comparação** `==`, `!=`, `<`, `>`, `<=`, `>=`
+- **Operadores lógicos** `&&`, `||`, `!` (com short-circuit)
+- **Expressões aritméticas** com precedência (`+`, `-`, `*`, `/`)
 - **Alocação/liberação** manual de memória (`alloc`, `free`)
 - **Acesso a campos** via referências (`ptr.campo`)
-- **Expressões aritméticas** com precedência (`+`, `-`, `*`, `/`)
 - **Chamadas de função** com passagem por valor
+- **Comentários** `//`, `#` (linha) e `/* */` (bloco)
 
 ### Convenção de chamada
 1. Caller empurra argumentos **da direita para a esquerda**
@@ -265,7 +286,7 @@ createCpu(memory)
 
 run(program)           // executa até HALT
 step(program): boolean // executa 1 instrução, retorna false se HALT
-getState(): CpuState   // { programCounter, zeroFlag, halted, generalPurpose }
+getState(): CpuState   // { programCounter, zeroFlag, negativeFlag, halted, generalPurpose }
 reset()
 ```
 

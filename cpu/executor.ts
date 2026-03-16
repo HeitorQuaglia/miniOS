@@ -128,7 +128,10 @@ export const executeInstruction = (
 
         case Opcode.CMP: {
             const [a, b] = operands;
-            state.zeroFlag = resolveValue(a, state, memory) === resolveValue(b, state, memory);
+            const va = resolveValue(a, state, memory);
+            const vb = resolveValue(b, state, memory);
+            state.zeroFlag = va === vb;
+            state.negativeFlag = va < vb;
             break;
         }
 
@@ -167,6 +170,24 @@ export const executeInstruction = (
         case Opcode.JNZ: {
             const [target] = operands;
             if (!state.zeroFlag) {
+                state.programCounter = resolveValue(target, state, memory);
+                return;
+            }
+            break;
+        }
+
+        case Opcode.JLT: {
+            const [target] = operands;
+            if (state.negativeFlag) {
+                state.programCounter = resolveValue(target, state, memory);
+                return;
+            }
+            break;
+        }
+
+        case Opcode.JGE: {
+            const [target] = operands;
+            if (!state.negativeFlag) {
                 state.programCounter = resolveValue(target, state, memory);
                 return;
             }

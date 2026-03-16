@@ -47,6 +47,7 @@ export const createCpu = (memory: Memory) => {
     const reset = () => {
         state.programCounter = 0;
         state.zeroFlag = false;
+        state.negativeFlag = false;
         state.halted = false;
         state.generalPurpose.R0 = 0;
         state.generalPurpose.R1 = 0;

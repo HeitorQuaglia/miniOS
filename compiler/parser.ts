@@ -2,7 +2,8 @@ import { TokenType, type Token } from "./tokens";
 import type {
     Program, Declaration, StructDeclaration, FunctionDeclaration,
     StructField, FunctionParameter, TypeNode,
-    Statement, Expression,
+    Statement, Expression, IfStatement, WhileStatement,
+    ComparisonOperator,
 } from "./ast";
 
 export const parse = (tokens: Token[]): Program => {
@@ -98,7 +99,62 @@ export const parse = (tokens: Token[]): Program => {
 
     // --- Statements ---
 
+    const parseIfStatement = (): IfStatement => {
+        expect(TokenType.IF, "if");
+        expect(TokenType.LPAREN, "if condition");
+        const condition = parseExpression();
+        expect(TokenType.RPAREN, "if condition");
+        expect(TokenType.LBRACE, "if body");
+        const consequent: Statement[] = [];
+        while (current().type !== TokenType.RBRACE) {
+            consequent.push(parseStatement());
+        }
+        expect(TokenType.RBRACE, "if body");
+
+        let alternate: Statement[] | null = null;
+        if (match(TokenType.ELSE)) {
+            if (current().type === TokenType.IF) {
+                alternate = [parseIfStatement()];
+            } else {
+                expect(TokenType.LBRACE, "else body");
+                const elseBody: Statement[] = [];
+                while (current().type !== TokenType.RBRACE) {
+                    elseBody.push(parseStatement());
+                }
+                expect(TokenType.RBRACE, "else body");
+                alternate = elseBody;
+            }
+        }
+
+        return { kind: "ifStatement", condition, consequent, alternate };
+    };
+
+    const parseWhileStatement = (): WhileStatement => {
+        expect(TokenType.WHILE, "while");
+        expect(TokenType.LPAREN, "while condition");
+        const condition = parseExpression();
+        expect(TokenType.RPAREN, "while condition");
+        expect(TokenType.LBRACE, "while body");
+        const body: Statement[] = [];
+        while (current().type !== TokenType.RBRACE) {
+            body.push(parseStatement());
+        }
+        expect(TokenType.RBRACE, "while body");
+
+        return { kind: "whileStatement", condition, body };
+    };
+
     const parseStatement = (): Statement => {
+        // if (...)  { ... }
+        if (current().type === TokenType.IF) {
+            return parseIfStatement();
+        }
+
+        // while (...) { ... }
+        if (current().type === TokenType.WHILE) {
+            return parseWhileStatement();
+        }
+
         // return ...
         if (current().type === TokenType.RETURN) {
             pos++;
@@ -139,7 +195,56 @@ export const parse = (tokens: Token[]): Program => {
 
     // --- Expressoes ---
 
-    const parseExpression = (): Expression => parseAdditive();
+    const parseExpression = (): Expression => parseLogicalOr();
+
+    const parseLogicalOr = (): Expression => {
+        let left = parseLogicalAnd();
+        while (current().type === TokenType.OR) {
+            pos++;
+            const right = parseLogicalAnd();
+            left = { kind: "logicalExpression", operator: "||", left, right };
+        }
+        return left;
+    };
+
+    const parseLogicalAnd = (): Expression => {
+        let left = parseComparison();
+        while (current().type === TokenType.AND) {
+            pos++;
+            const right = parseComparison();
+            left = { kind: "logicalExpression", operator: "&&", left, right };
+        }
+        return left;
+    };
+
+    const parseComparison = (): Expression => {
+        let left = parseAdditive();
+
+        const t = current().type;
+        if (
+            t === TokenType.EQ_EQ  || t === TokenType.NOT_EQ ||
+            t === TokenType.LANGLE || t === TokenType.RANGLE ||
+            t === TokenType.LT_EQ  || t === TokenType.GT_EQ
+        ) {
+            const opToken = current();
+            pos++;
+            const right = parseAdditive();
+
+            let operator: ComparisonOperator;
+            switch (opToken.type) {
+                case TokenType.EQ_EQ:  operator = "=="; break;
+                case TokenType.NOT_EQ: operator = "!="; break;
+                case TokenType.LANGLE: operator = "<";  break;
+                case TokenType.RANGLE: operator = ">";  break;
+                case TokenType.LT_EQ:  operator = "<="; break;
+                case TokenType.GT_EQ:  operator = ">="; break;
+                default: throw new Error("Unreachable");
+            }
+
+            left = { kind: "comparisonExpression", operator, left, right };
+        }
+        return left;
+    };
 
     const parseAdditive = (): Expression => {
         let left = parseMultiplicative();
@@ -152,13 +257,22 @@ export const parse = (tokens: Token[]): Program => {
     };
 
     const parseMultiplicative = (): Expression => {
-        let left = parsePostfix();
+        let left = parseUnary();
         while (current().type === TokenType.STAR || current().type === TokenType.SLASH) {
             const op = (pos++, tokens[pos - 1].value) as "*" | "/";
-            const right = parsePostfix();
+            const right = parseUnary();
             left = { kind: "binaryExpression", operator: op, left, right };
         }
         return left;
+    };
+
+    const parseUnary = (): Expression => {
+        if (current().type === TokenType.BANG) {
+            pos++;
+            const operand = parseUnary();
+            return { kind: "unaryExpression", operator: "!", operand };
+        }
+        return parsePostfix();
     };
 
     const parsePostfix = (): Expression => {

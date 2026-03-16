@@ -27,9 +27,24 @@ export const tokenize = (source: string): Token[] => {
             continue;
         }
 
-        // comentarios //
-        if (ch === "/" && source[pos + 1] === "/") {
+        // comentarios de linha: // e #
+        if ((ch === "/" && source[pos + 1] === "/") || ch === "#") {
             while (pos < source.length && peek() !== "\n") advance();
+            continue;
+        }
+
+        // comentarios de bloco: /* ... */
+        if (ch === "/" && source[pos + 1] === "*") {
+            advance(); // consome /
+            advance(); // consome *
+            while (pos < source.length) {
+                if (peek() === "*" && source[pos + 1] === "/") {
+                    advance(); // consome *
+                    advance(); // consome /
+                    break;
+                }
+                advance();
+            }
             continue;
         }
 
@@ -67,16 +82,37 @@ export const tokenize = (source: string): Token[] => {
             case "-": addToken(TokenType.MINUS,  ch); break;
             case "*": addToken(TokenType.STAR,   ch); break;
             case "/": addToken(TokenType.SLASH,  ch); break;
-            case "=": addToken(TokenType.EQUALS, ch); break;
+            case "=":
+                if (peek() === "=") { advance(); addToken(TokenType.EQ_EQ, "=="); }
+                else { addToken(TokenType.EQUALS, ch); }
+                break;
+            case "!":
+                if (peek() === "=") { advance(); addToken(TokenType.NOT_EQ, "!="); }
+                else { addToken(TokenType.BANG, ch); }
+                break;
             case ".": addToken(TokenType.DOT,    ch); break;
             case "(": addToken(TokenType.LPAREN, ch); break;
             case ")": addToken(TokenType.RPAREN, ch); break;
             case "{": addToken(TokenType.LBRACE, ch); break;
             case "}": addToken(TokenType.RBRACE, ch); break;
-            case "<": addToken(TokenType.LANGLE, ch); break;
-            case ">": addToken(TokenType.RANGLE, ch); break;
+            case "<":
+                if (peek() === "=") { advance(); addToken(TokenType.LT_EQ, "<="); }
+                else { addToken(TokenType.LANGLE, ch); }
+                break;
+            case ">":
+                if (peek() === "=") { advance(); addToken(TokenType.GT_EQ, ">="); }
+                else { addToken(TokenType.RANGLE, ch); }
+                break;
             case ":": addToken(TokenType.COLON,  ch); break;
             case ",": addToken(TokenType.COMMA,  ch); break;
+            case "&":
+                if (peek() === "&") { advance(); addToken(TokenType.AND, "&&"); }
+                else { throw new Error(`Caractere inesperado '&' na linha ${line}, coluna ${column - 1}. Voce quis dizer '&&'?`); }
+                break;
+            case "|":
+                if (peek() === "|") { advance(); addToken(TokenType.OR, "||"); }
+                else { throw new Error(`Caractere inesperado '|' na linha ${line}, coluna ${column - 1}. Voce quis dizer '||'?`); }
+                break;
             case ";": break; // semicolons opcionais, ignorados
             default:
                 throw new Error(`Caractere inesperado '${ch}' na linha ${line}, coluna ${column - 1}`);

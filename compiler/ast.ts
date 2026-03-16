@@ -66,12 +66,27 @@ export interface ExpressionStatement {
     expression: Expression;
 }
 
+export interface IfStatement {
+    kind: "ifStatement";
+    condition: Expression;
+    consequent: Statement[];
+    alternate: Statement[] | null;
+}
+
+export interface WhileStatement {
+    kind: "whileStatement";
+    condition: Expression;
+    body: Statement[];
+}
+
 export type Statement =
     | VariableDeclaration
     | Assignment
     | ReturnStatement
     | FreeStatement
-    | ExpressionStatement;
+    | ExpressionStatement
+    | IfStatement
+    | WhileStatement;
 
 // --- Expressoes ---
 
@@ -109,10 +124,35 @@ export interface AllocExpression {
     typeName: string;
 }
 
+export type ComparisonOperator = "==" | "!=" | "<" | ">" | "<=" | ">=";
+
+export interface ComparisonExpression {
+    kind: "comparisonExpression";
+    operator: ComparisonOperator;
+    left: Expression;
+    right: Expression;
+}
+
+export interface LogicalExpression {
+    kind: "logicalExpression";
+    operator: "&&" | "||";
+    left: Expression;
+    right: Expression;
+}
+
+export interface UnaryExpression {
+    kind: "unaryExpression";
+    operator: "!";
+    operand: Expression;
+}
+
 export type Expression =
     | NumberLiteral
     | Identifier
     | BinaryExpression
+    | ComparisonExpression
+    | LogicalExpression
+    | UnaryExpression
     | FunctionCall
     | FieldAccess
     | AllocExpression;

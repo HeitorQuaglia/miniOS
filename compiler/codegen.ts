@@ -40,6 +40,7 @@ interface FunctionContext {
     params: Map<string, VariableLocation>;
     locals: Map<string, VariableLocation>;
     nextLocalOffset: number; // proximo offset negativo para alocar local
+    baseAddress: number; // endereco absoluto da primeira instrucao da funcao
 }
 
 interface CompilationContext {
@@ -171,6 +172,71 @@ const compileExpression = (
             emit(instructions, Opcode.ALLOC, [reg("R0"), imm(structInfo.sizeInBytes)]);
             break;
         }
+
+        case "comparisonExpression": {
+            // Para > e <=, inverte operandos e usa < e >=
+            let leftExpr = expr.left;
+            let rightExpr = expr.right;
+            let effectiveOp = expr.operator;
+
+            if (effectiveOp === ">") {
+                leftExpr = expr.right;
+                rightExpr = expr.left;
+                effectiveOp = "<";
+            } else if (effectiveOp === "<=") {
+                leftExpr = expr.right;
+                rightExpr = expr.left;
+                effectiveOp = ">=";
+            }
+
+            compileExpression(leftExpr, instructions, fnCtx, ctx);
+            emit(instructions, Opcode.PUSH, [reg("R0")]);
+            compileExpression(rightExpr, instructions, fnCtx, ctx);
+            emit(instructions, Opcode.MOV, [reg("R1"), reg("R0")]);
+            emit(instructions, Opcode.POP, [reg("R0")]);
+            emit(instructions, Opcode.CMP, [reg("R0"), reg("R1")]);
+            emit(instructions, Opcode.MOV, [reg("R0"), imm(0)]);
+
+            // Jump OVER "MOV R0, 1" quando condição NÃO atendida
+            const skipTrueAddr = fnCtx.baseAddress + instructions.length + 2;
+            switch (effectiveOp) {
+                case "==": emit(instructions, Opcode.JNZ, [imm(skipTrueAddr)]); break;
+                case "!=": emit(instructions, Opcode.JZ,  [imm(skipTrueAddr)]); break;
+                case "<":  emit(instructions, Opcode.JGE, [imm(skipTrueAddr)]); break;
+                case ">=": emit(instructions, Opcode.JLT, [imm(skipTrueAddr)]); break;
+            }
+
+            emit(instructions, Opcode.MOV, [reg("R0"), imm(1)]);
+            break;
+        }
+
+        case "logicalExpression": {
+            compileExpression(expr.left, instructions, fnCtx, ctx);
+            emit(instructions, Opcode.CMP, [reg("R0"), imm(0)]);
+
+            // short-circuit: && salta se false (JZ), || salta se true (JNZ)
+            const jumpOpcode = expr.operator === "&&" ? Opcode.JZ : Opcode.JNZ;
+            const jumpIdx = instructions.length;
+            emit(instructions, jumpOpcode, [imm(0)]); // placeholder
+
+            compileExpression(expr.right, instructions, fnCtx, ctx);
+
+            // patch: pula para depois do lado direito
+            const endAddr = fnCtx.baseAddress + instructions.length;
+            instructions[jumpIdx] = { opcode: jumpOpcode, operands: [imm(endAddr)] };
+            break;
+        }
+
+        case "unaryExpression": {
+            // !operand: se 0 → 1, senão → 0
+            compileExpression(expr.operand, instructions, fnCtx, ctx);
+            emit(instructions, Opcode.CMP, [reg("R0"), imm(0)]);
+            emit(instructions, Opcode.MOV, [reg("R0"), imm(0)]);
+            const skipAddr = fnCtx.baseAddress + instructions.length + 2;
+            emit(instructions, Opcode.JNZ, [imm(skipAddr)]);
+            emit(instructions, Opcode.MOV, [reg("R0"), imm(1)]);
+            break;
+        }
     }
 };
 
@@ -293,6 +359,50 @@ const compileStatement = (
             compileExpression(stmt.expression, instructions, fnCtx, ctx);
             break;
         }
+
+        case "ifStatement": {
+            compileExpression(stmt.condition, instructions, fnCtx, ctx);
+            emit(instructions, Opcode.CMP, [reg("R0"), imm(0)]);
+
+            if (stmt.alternate === null) {
+                // sem else: JZ end, consequent, end:
+                const jzIdx = instructions.length;
+                emit(instructions, Opcode.JZ, [imm(0)]); // placeholder
+                for (const s of stmt.consequent) {
+                    compileStatement(s, instructions, fnCtx, ctx);
+                }
+                instructions[jzIdx] = { opcode: Opcode.JZ, operands: [imm(fnCtx.baseAddress + instructions.length)] };
+            } else {
+                // com else: JZ else, consequent, JMP end, else:, alternate, end:
+                const jzIdx = instructions.length;
+                emit(instructions, Opcode.JZ, [imm(0)]); // placeholder → else
+                for (const s of stmt.consequent) {
+                    compileStatement(s, instructions, fnCtx, ctx);
+                }
+                const jmpIdx = instructions.length;
+                emit(instructions, Opcode.JMP, [imm(0)]); // placeholder → end
+                instructions[jzIdx] = { opcode: Opcode.JZ, operands: [imm(fnCtx.baseAddress + instructions.length)] };
+                for (const s of stmt.alternate) {
+                    compileStatement(s, instructions, fnCtx, ctx);
+                }
+                instructions[jmpIdx] = { opcode: Opcode.JMP, operands: [imm(fnCtx.baseAddress + instructions.length)] };
+            }
+            break;
+        }
+
+        case "whileStatement": {
+            const loopAddr = fnCtx.baseAddress + instructions.length;
+            compileExpression(stmt.condition, instructions, fnCtx, ctx);
+            emit(instructions, Opcode.CMP, [reg("R0"), imm(0)]);
+            const jzIdx = instructions.length;
+            emit(instructions, Opcode.JZ, [imm(0)]); // placeholder → exit
+            for (const s of stmt.body) {
+                compileStatement(s, instructions, fnCtx, ctx);
+            }
+            emit(instructions, Opcode.JMP, [imm(loopAddr)]);
+            instructions[jzIdx] = { opcode: Opcode.JZ, operands: [imm(fnCtx.baseAddress + instructions.length)] };
+            break;
+        }
     }
 };
 
@@ -301,6 +411,7 @@ const compileStatement = (
 const compileFunction = (
     decl: FunctionDeclaration,
     ctx: CompilationContext,
+    baseAddress: number,
 ): Instruction[] => {
     const instructions: Instruction[] = [];
 
@@ -309,6 +420,7 @@ const compileFunction = (
         params: new Map(),
         locals: new Map(),
         nextLocalOffset: -(2 * WORD_SIZE_IN_BYTES), // FP-8 = primeiro local (FP-4 = ret addr)
+        baseAddress,
         paramTypes: new Map(),
         localTypes: new Map(),
     };
@@ -366,11 +478,11 @@ export const generateCode = (program: Program): Instruction[] => {
         ctx.functionAddresses.set(fn.name, 0);
     }
     for (const fn of functions) {
-        compiledFunctions.push({ name: fn.name, instructions: compileFunction(fn, ctx) });
+        compiledFunctions.push({ name: fn.name, instructions: compileFunction(fn, ctx, 0) });
     }
 
-    // calcula enderecos reais (instrucao 0 = JMP main, funcoes vem depois)
-    let address = 1; // pula o JMP inicial
+    // calcula enderecos reais (instrucoes 0-1 = CALL main + HALT, funcoes vem depois)
+    let address = 2; // pula CALL + HALT
     for (const compiled of compiledFunctions) {
         ctx.functionAddresses.set(compiled.name, address);
         address += compiled.instructions.length;
@@ -379,7 +491,8 @@ export const generateCode = (program: Program): Instruction[] => {
     // recompila com enderecos corretos
     compiledFunctions.length = 0;
     for (const fn of functions) {
-        compiledFunctions.push({ name: fn.name, instructions: compileFunction(fn, ctx) });
+        const addr = ctx.functionAddresses.get(fn.name)!;
+        compiledFunctions.push({ name: fn.name, instructions: compileFunction(fn, ctx, addr) });
     }
 
     // monta o programa final
@@ -390,20 +503,16 @@ export const generateCode = (program: Program): Instruction[] => {
 
     const finalProgram: Instruction[] = [];
 
-    // instrucao 0: JMP main
-    emit(finalProgram, Opcode.JMP, [imm(mainAddr)]);
+    // instrucao 0: CALL main (cria stack frame para main)
+    // instrucao 1: HALT (executa quando main retorna)
+    emit(finalProgram, Opcode.CALL, [imm(mainAddr)]);
+    emit(finalProgram, Opcode.HALT, []);
 
-    // todas as funcoes (exceto main tem HALT no final)
+    // todas as funcoes
     for (const compiled of compiledFunctions) {
         for (const instr of compiled.instructions) {
             finalProgram.push(instr);
         }
-    }
-
-    // substitui o ultimo RET de main por HALT
-    const mainEndIdx = mainAddr + (compiledFunctions.find(f => f.name === "main")!.instructions.length) - 1;
-    if (finalProgram[mainEndIdx]?.opcode === Opcode.RET) {
-        finalProgram[mainEndIdx] = { opcode: Opcode.HALT, operands: [] };
     }
 
     return finalProgram;

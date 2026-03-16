@@ -9,7 +9,8 @@
 //   HP  - Heap Pointer:    gerenciado pelo heap allocator
 //
 // Flags:
-//   ZF  - Zero Flag: setada por CMP quando os operandos sao iguais
+//   ZF  - Zero Flag:     setada por CMP quando os operandos sao iguais
+//   NF  - Negative Flag: setada por CMP quando a < b
 //
 // Modos de enderecamento dos operandos:
 //   register       ->  MOV R0, R1       (valor do registrador)
@@ -41,6 +42,8 @@ export enum Opcode {
     JMP  = "JMP",      // JMP  addr      — salto incondicional
     JZ   = "JZ",       // JZ   addr      — salto se ZF == true
     JNZ  = "JNZ",      // JNZ  addr      — salto se ZF == false
+    JLT  = "JLT",      // JLT  addr      — salto se NF == true  (a < b)
+    JGE  = "JGE",      // JGE  addr      — salto se NF == false (a >= b)
     CALL = "CALL",     // CALL addr      — chama funcao (pushFrame)
     RET  = "RET",      // RET            — retorna de funcao (popFrame)
 
