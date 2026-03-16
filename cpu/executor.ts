@@ -10,6 +10,12 @@ const resolveValue = (operand: Operand, state: CpuState, memory: Memory): number
     switch (operand.type) {
         case "register":
             return state.generalPurpose[operand.register];
+        case "special": {
+            const regs = memory.getRegisters();
+            if (operand.register === "SP") return regs.stackPointer;
+            if (operand.register === "FP") return regs.framePointer;
+            return regs.heapPointer;
+        }
         case "immediate":
             return operand.value;
         case "memoryDirect":
@@ -19,21 +25,27 @@ const resolveValue = (operand: Operand, state: CpuState, memory: Memory): number
     }
 };
 
-const expectRegister = (operand: Operand, context: string): operand is Operand & { type: "register" } => {
-    if (operand.type !== "register") {
-        throw new Error(`${context}: destino deve ser um registrador, recebeu ${operand.type}`);
+type RegisterOperand = Extract<Operand, { type: "register" }>;
+type MemoryOperand = Extract<Operand, { type: "memoryDirect" | "memoryRegister" }>;
+
+const expectRegister: (
+    operand: Operand | undefined,
+    context: string,
+) => asserts operand is RegisterOperand = (operand, context) => {
+    if (!operand || operand.type !== "register") {
+        const received = operand ? operand.type : "ausente";
+        throw new Error(`${context}: destino deve ser um registrador, recebeu ${received}`);
     }
-    return true;
 };
 
-const expectMemory = (
-    operand: Operand,
+const expectMemory: (
+    operand: Operand | undefined,
     context: string,
-): operand is Operand & { type: "memoryDirect" | "memoryRegister" } => {
-    if (operand.type !== "memoryDirect" && operand.type !== "memoryRegister") {
-        throw new Error(`${context}: destino deve ser endereco de memoria, recebeu ${operand.type}`);
+) => asserts operand is MemoryOperand = (operand, context) => {
+    if (!operand || (operand.type !== "memoryDirect" && operand.type !== "memoryRegister")) {
+        const received = operand ? operand.type : "ausente";
+        throw new Error(`${context}: destino deve ser endereco de memoria, recebeu ${received}`);
     }
-    return true;
 };
 
 const resolveAddress = (operand: Operand, state: CpuState): number => {
@@ -102,6 +114,16 @@ export const executeInstruction = (
             break;
         }
 
+        case Opcode.DIV: {
+            const [dest, src] = operands;
+            expectRegister(dest, "DIV");
+            const divisor = resolveValue(src, state, memory);
+            if (divisor === 0) throw new Error("Divisao por zero");
+            state.generalPurpose[dest.register] =
+                (state.generalPurpose[dest.register] / divisor) >>> 0;
+            break;
+        }
+
         // ---- Comparacao ----
 
         case Opcode.CMP: {
@@ -130,7 +152,7 @@ export const executeInstruction = (
         case Opcode.JMP: {
             const [target] = operands;
             state.programCounter = resolveValue(target, state, memory);
-            return; // nao incrementa PC
+            return;
         }
 
         case Opcode.JZ: {
@@ -153,7 +175,6 @@ export const executeInstruction = (
 
         case Opcode.CALL: {
             const [target] = operands;
-            // salva o PC atual + 1 (proxima instrucao) como endereco de retorno
             memory.pushFrame(state.programCounter + 1);
             state.programCounter = resolveValue(target, state, memory);
             return;
@@ -162,6 +183,21 @@ export const executeInstruction = (
         case Opcode.RET: {
             state.programCounter = memory.popFrame();
             return;
+        }
+
+        // ---- Heap ----
+
+        case Opcode.ALLOC: {
+            const [dest, size] = operands;
+            expectRegister(dest, "ALLOC");
+            state.generalPurpose[dest.register] = memory.heapAlloc(resolveValue(size, state, memory));
+            break;
+        }
+
+        case Opcode.FREE: {
+            const [src] = operands;
+            memory.heapFree(resolveValue(src, state, memory));
+            break;
         }
 
         // ---- Sistema ----

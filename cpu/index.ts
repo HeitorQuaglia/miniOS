@@ -57,6 +57,6 @@ export const createCpu = (memory: Memory) => {
     return { run, step, getState, reset };
 };
 
-export { Opcode, reg, imm, memAddr, memReg } from "./types";
-export type { Instruction, Operand, GeneralRegister } from "./types";
+export { Opcode, reg, imm, memAddr, memReg, fp, sp, hp } from "./types";
+export type { Instruction, Operand, GeneralRegister, SpecialRegister } from "./types";
 export type { CpuState } from "./registers";

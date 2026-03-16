@@ -1,0 +1,32 @@
+//types: number, char
+
+struct Pointer {
+    x: number;
+    y: number;
+}
+
+fn sum(x: number, y: number): number {
+    return x + y;
+}
+
+fn midPoint(p1: ref<Pointer>, p2: ref<Pointer>): ref<Pointer> {
+    pret: ref<Pointer> = alloc(Pointer);
+    pret.x = sum(p1.x, p2.x) / 2;
+    pret.y = sum(p1.y, p2.y) / 2;
+    return pret;
+}
+
+fn main() {
+    point1: ref<Pointer> = alloc(Pointer);
+    point1.x = 10;
+    point1.y = 10;
+
+    point2: ref<Pointer> = alloc(Pointer);
+    point2.x = 10;
+    point2.y = 20;
+
+    pmid: ref<Pointer> = midPoint(point1, point2);
+
+    free(point1);
+    free(point2);
+}

@@ -3,8 +3,7 @@
 // ============================================================
 //
 // Registradores de proposito geral: R0, R1, R2, R3
-// Registradores especiais (somente leitura pela CPU):
-//   PC  - Program Counter: indice da proxima instrucao
+// Registradores especiais (somente leitura via MOV):
 //   SP  - Stack Pointer:   gerenciado por PUSH/POP
 //   FP  - Frame Pointer:   gerenciado por CALL/RET
 //   HP  - Heap Pointer:    gerenciado pelo heap allocator
@@ -14,6 +13,7 @@
 //
 // Modos de enderecamento dos operandos:
 //   register       ->  MOV R0, R1       (valor do registrador)
+//   special        ->  MOV R0, FP       (valor de registrador especial)
 //   immediate      ->  MOV R0, 42       (valor literal)
 //   memoryDirect   ->  LOAD R0, [100]   (endereco fixo na memoria)
 //   memoryRegister ->  LOAD R0, [R1]    (endereco contido no registrador)
@@ -28,6 +28,7 @@ export enum Opcode {
     ADD = "ADD",       // ADD dest, src  — dest = dest + src
     SUB = "SUB",       // SUB dest, src  — dest = dest - src
     MUL = "MUL",       // MUL dest, src  — dest = dest * src
+    DIV = "DIV",       // DIV dest, src  — dest = dest / src (inteiro)
 
     // comparacao
     CMP = "CMP",       // CMP a, b       — seta ZF se a == b
@@ -43,6 +44,10 @@ export enum Opcode {
     CALL = "CALL",     // CALL addr      — chama funcao (pushFrame)
     RET  = "RET",      // RET            — retorna de funcao (popFrame)
 
+    // heap
+    ALLOC = "ALLOC",   // ALLOC dest, size — dest = heapAlloc(size)
+    FREE  = "FREE",    // FREE  src        — heapFree(src)
+
     // sistema
     NOP  = "NOP",      // NOP            — nenhuma operacao
     HALT = "HALT",     // HALT           — para a execucao
@@ -50,12 +55,15 @@ export enum Opcode {
 
 export type GeneralRegister = "R0" | "R1" | "R2" | "R3";
 
+export type SpecialRegister = "SP" | "FP" | "HP";
+
 export const GENERAL_REGISTERS: GeneralRegister[] = ["R0", "R1", "R2", "R3"];
 
 // --- Operandos ---
 
 export type Operand =
     | { type: "register"; register: GeneralRegister }
+    | { type: "special"; register: SpecialRegister }
     | { type: "immediate"; value: number }
     | { type: "memoryDirect"; address: number }
     | { type: "memoryRegister"; register: GeneralRegister };
@@ -71,6 +79,15 @@ export interface Instruction {
 
 export const reg = (r: GeneralRegister): Operand =>
     ({ type: "register", register: r });
+
+export const sp = (): Operand =>
+    ({ type: "special", register: "SP" });
+
+export const fp = (): Operand =>
+    ({ type: "special", register: "FP" });
+
+export const hp = (): Operand =>
+    ({ type: "special", register: "HP" });
 
 export const imm = (value: number): Operand =>
     ({ type: "immediate", value });

@@ -10,6 +10,6 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
-  "include": ["index.ts"],
+  "include": ["index.ts", "memory/**/*.ts", "cpu/**/*.ts", "compiler/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }
