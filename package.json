@@ -1,0 +1,24 @@
+{
+  "name": "minios",
+  "version": "1.0.0",
+  "description": "Educational memory management simulator that demonstrates the interaction between the Call Stack and Heap through Stack Frames and virtual addressing",
+  "keywords": [
+    "Low-Level",
+    "Call-Stack",
+    "Heap-Allocation",
+    "Virtual-Machine"
+  ],
+  "license": "MIT",
+  "author": "Heitor Quaglia",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "run": "npm run build && npm run start",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "typescript": "^5.9.3"
+  }
+}
