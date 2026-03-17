@@ -1,5 +1,5 @@
 import { WORD_SIZE_IN_BYTES, type Registers, type HeapBlock } from "./types";
-import type { MemoryBuffer } from "./buffer";
+import type { MemoryBuffer } from "./types";
 
 export const createHeap = (
     buffer: MemoryBuffer,

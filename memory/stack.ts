@@ -1,5 +1,5 @@
 import { WORD_SIZE_IN_BYTES, type Registers } from "./types";
-import type { MemoryBuffer } from "./buffer";
+import type { MemoryBuffer } from "./types";
 
 export const createStack = (
     buffer: MemoryBuffer,

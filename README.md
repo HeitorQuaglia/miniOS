@@ -1,17 +1,22 @@
 # miniOS
 
-Simulador educacional de hardware e sistema operacional que demonstra como memória, CPU e compiladores funcionam por baixo dos panos. Inclui um modelo de memória unificada com Stack e Heap, um processador com 20 instruções de pseudo-assembly, e um compilador completo para uma linguagem de alto nível Turing Complete.
+Simulador educacional de hardware e sistema operacional que demonstra como memória, CPU e compiladores funcionam por baixo dos panos. Inclui um modelo de memória virtual com paginação por demanda, um processador com 20 instruções de pseudo-assembly, e um compilador completo para uma linguagem de alto nível Turing Complete.
 
 ## Estrutura do projeto
 
 ```
 miniOS/
-├── memory/               # Modelo de memória unificada
-│   ├── types.ts          # Registradores (SP, FP, HP), constantes
-│   ├── buffer.ts         # Leitura/escrita de bytes e words (little-endian)
+├── memory/               # Modelo de memória virtual
+│   ├── types.ts          # Registradores (SP, FP, HP), constantes, interface MemoryBuffer
+│   ├── paging/           # Sistema de paginação por demanda
+│   │   ├── types.ts      # Constantes (PAGE_SIZE, etc.), interfaces (PhysicalFrame, PageTableEntry)
+│   │   ├── physicalMemory.ts  # Pool de frames físicos (cresce sob demanda)
+│   │   ├── pageTable.ts  # Tabela de páginas (virtual → físico)
+│   │   ├── mmu.ts        # MMU: tradução de endereços, page faults, demand paging
+│   │   └── index.ts      # Re-exportações
 │   ├── stack.ts          # Push, pop, stack frames
 │   ├── heap.ts           # Alocação first-fit, free, detecção de double-free
-│   ├── dump.ts           # Visualização da memória para debug
+│   ├── dump.ts           # Visualização da memória e estatísticas de paginação
 │   └── index.ts          # Fachada: createMemory()
 │
 ├── cpu/                  # Simulador de CPU
@@ -34,12 +39,14 @@ miniOS/
 └── index.ts              # Re-exporta tudo
 ```
 
-## Modelo de memória
+## Modelo de memória virtual
 
-Um único buffer contíguo (`Uint8Array`) onde Stack e Heap compartilham o espaço e crescem em direções opostas:
+O miniOS usa **paginação por demanda** (demand paging), da mesma forma que sistemas operacionais modernos. O programa enxerga um espaço de endereçamento virtual contínuo, mas a memória física só é alocada quando uma página é acessada pela primeira vez (page fault).
 
 ```
-Endereço 0                                     Endereço N
+Espaço virtual (1024 bytes por padrão):
+
+Endereço 0                                   Endereço 1023
 ┌──────────────────┬──────────────┬──────────────────┐
 │   HEAP ──>       │   (livre)    │       <── STACK  │
 │   cresce ──>     │              │       <── cresce │
@@ -48,7 +55,35 @@ Endereço 0                                     Endereço N
 HP (Heap Pointer)                         SP (Stack Pointer)
 ```
 
-**Registradores de controle:**
+### Como funciona a tradução de endereços
+
+```
+CPU → mmu.readWord(endereço virtual)
+        → splitAddress(addr) → { pageNumber, offset }
+        → pageTable.lookup(pageNumber)
+            → HIT:  retorna frame físico já alocado
+            → MISS: page fault → aloca novo frame → mapeia na tabela
+        → frame.data[offset]
+```
+
+### Constantes de paginação
+
+| Constante | Valor | Descrição |
+|---|---|---|
+| `PAGE_SIZE` | 16 bytes | Tamanho de cada página (4 words) |
+| `VIRTUAL_ADDRESS_SPACE` | 1024 bytes | Espaço virtual que o programa enxerga |
+| `MAX_PHYSICAL_PAGES` | 64 | Limite de frames físicos (simula RAM finita) |
+
+### Page Table Entry
+
+Cada entrada na tabela de páginas contém:
+- `valid` — página está mapeada?
+- `physicalFrameId` — qual frame físico foi atribuído
+- `dirty` — página foi escrita?
+- `accessed` — página foi acessada?
+
+### Registradores de controle
+
 | Registrador | Descrição |
 |---|---|
 | `SP` (Stack Pointer) | Próximo byte livre no topo da stack (cresce para baixo) |
@@ -57,7 +92,8 @@ HP (Heap Pointer)                         SP (Stack Pointer)
 
 Se HP ultrapassar SP, uma exceção de **colisão de memória** é lançada.
 
-**Layout do stack frame:**
+### Layout do stack frame
+
 ```
 @(FP + 8)   = parâmetro 0  (empurrado primeiro pelo caller)
 @(FP + 4)   = parâmetro 1
@@ -218,12 +254,43 @@ fn main() {
 }
 `;
 
-const memory = createMemory(256);
+const memory = createMemory();
 const program = compile(source);
 const cpu = createCpu(memory);
 
 cpu.run(program);
 memory.dump();
+```
+
+### Configurando a memória
+
+```typescript
+// Padrão: 1024 bytes virtuais, páginas de 16 bytes, máx 64 frames
+const memory = createMemory();
+
+// Customizado
+const memory = createMemory({
+    virtualSize: 2048,
+    pageSize: 32,
+    maxPhysicalPages: 128,
+});
+```
+
+### Inspecionando a paginação
+
+```typescript
+const memory = createMemory();
+const cpu = createCpu(memory);
+cpu.run(program);
+
+// Estatísticas: page faults, hit rate, frames alocados
+console.log(memory.getPagingStats());
+// { totalPageFaults: 3, totalAccesses: 136, physicalFramesAllocated: 3, physicalFramesMax: 64 }
+
+// Tabela de páginas detalhada
+memory.dumpPageTable();
+// Pagina  0 (virtual    0-  15) -> Frame  1 [DA]
+// Pagina 63 (virtual 1008-1023) -> Frame  0 [DA]
 ```
 
 ### Programando direto em assembly
@@ -261,9 +328,13 @@ while (cpu.step(program)) {
 
 ### Memory
 ```typescript
-createMemory(sizeInBytes?: number)  // default: 256
+createMemory(config?: {
+    virtualSize?: number;       // default: 1024
+    pageSize?: number;          // default: 16
+    maxPhysicalPages?: number;  // default: 64
+})
 
-// Leitura/escrita
+// Leitura/escrita (endereços virtuais, traduzidos pela MMU)
 readWord(address) / writeWord(address, value)
 readByte(address) / writeByte(address, value)
 
@@ -272,8 +343,12 @@ stackPush(value) / stackPop() / stackPeek()
 pushFrame(returnAddress) / popFrame(): number
 
 // Heap
-heapAlloc(sizeInBytes): number  // retorna endereço
+heapAlloc(sizeInBytes): number  // retorna endereço virtual
 heapFree(address)
+
+// Paginação
+getPagingStats(): PagingStats
+dumpPageTable()
 
 // Debug
 getRegisters(): { stackPointer, framePointer, heapPointer }

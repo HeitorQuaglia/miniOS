@@ -1,11 +1,15 @@
-import { WORD_SIZE_IN_BYTES, type Registers, type HeapBlock } from "./types";
-import type { MemoryBuffer } from "./buffer";
+import { WORD_SIZE_IN_BYTES, type MemoryBuffer, type Registers, type HeapBlock } from "./types";
+import type { PagingStats } from "./paging";
 
 export const createMemoryDump = (
     buffer: MemoryBuffer,
     registers: Registers,
     allocatedBlocks: HeapBlock[],
     totalSizeInBytes: number,
+    pagingInfo?: {
+        dumpPageTable: () => void;
+        getStats: () => PagingStats;
+    } | null,
 ) => {
     return () => {
         const usedByHeap = registers.heapPointer;
@@ -23,6 +27,20 @@ export const createMemoryDump = (
             `Stack: ${usedByStack}b | ` +
             `Livre: ${freeBytes}b`
         );
+
+        if (pagingInfo) {
+            const stats = pagingInfo.getStats();
+            const hitRate = stats.totalAccesses > 0
+                ? (((stats.totalAccesses - stats.totalPageFaults) / stats.totalAccesses) * 100).toFixed(1)
+                : "0.0";
+            console.log(
+                `\n[PAGINACAO]` +
+                `\n  Frames fisicos: ${stats.physicalFramesAllocated}/${stats.physicalFramesMax}` +
+                `\n  Page faults: ${stats.totalPageFaults}` +
+                `\n  Acessos totais: ${stats.totalAccesses}` +
+                `\n  Hit rate: ${hitRate}%`
+            );
+        }
 
         console.log("\n[HEAP]");
         for (const block of allocatedBlocks) {
@@ -44,6 +62,10 @@ export const createMemoryDump = (
                 address === registers.framePointer ? " <-- FP" :
                 address === registers.stackPointer ? " <-- SP" : "";
             console.log(`  @${address} = ${buffer.readWord(address)}${label}`);
+        }
+
+        if (pagingInfo) {
+            pagingInfo.dumpPageTable();
         }
 
         console.log("=".repeat(40) + "\n");
