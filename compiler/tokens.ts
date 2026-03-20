@@ -46,6 +46,8 @@ export enum TokenType {
     RANGLE = ">",
     COLON  = ":",
     COMMA  = ",",
+    LBRACKET = "[",
+    RBRACKET = "]",
 
     // fim
     EOF = "EOF",

@@ -105,6 +105,8 @@ export const tokenize = (source: string): Token[] => {
                 break;
             case ":": addToken(TokenType.COLON,  ch); break;
             case ",": addToken(TokenType.COMMA,  ch); break;
+            case "[": addToken(TokenType.LBRACKET, ch); break;
+            case "]": addToken(TokenType.RBRACKET, ch); break;
             case "&":
                 if (peek() === "&") { advance(); addToken(TokenType.AND, "&&"); }
                 else { throw new Error(`Caractere inesperado '&' na linha ${line}, coluna ${column - 1}. Voce quis dizer '&&'?`); }
