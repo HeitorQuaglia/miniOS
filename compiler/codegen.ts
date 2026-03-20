@@ -128,6 +128,32 @@ const compileExpression = (
         }
 
         case "functionCall": {
+            const SYSCALL_BUILTINS: Record<string, number> = {
+                sys_read: 0,
+                sys_write: 1,
+                sys_exit: 2,
+            };
+
+            const syscallNum = SYSCALL_BUILTINS[expr.callee];
+            if (syscallNum !== undefined) {
+                // Syscall built-in: emit inline MOV to registers + SYSCALL
+                // sys_read(buf, count): R1 = buf addr, R2 = count
+                // sys_write(buf, count): R1 = buf addr, R2 = count
+                // sys_exit(code): R1 = exit code
+                if (expr.arguments.length >= 1) {
+                    compileExpression(expr.arguments[0], instructions, fnCtx, ctx);
+                    emit(instructions, Opcode.MOV, [reg("R1"), reg("R0")]);
+                }
+                if (expr.arguments.length >= 2) {
+                    compileExpression(expr.arguments[1], instructions, fnCtx, ctx);
+                    emit(instructions, Opcode.MOV, [reg("R2"), reg("R0")]);
+                }
+                emit(instructions, Opcode.MOV, [reg("R0"), imm(syscallNum)]);
+                emit(instructions, Opcode.SYSCALL, []);
+                // Result in R0
+                break;
+            }
+
             const targetAddr = ctx.functionAddresses.get(expr.callee);
             if (targetAddr === undefined) {
                 throw new Error(`Funcao '${expr.callee}' nao definida`);
