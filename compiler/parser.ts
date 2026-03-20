@@ -34,17 +34,37 @@ export const parse = (tokens: Token[]): Program => {
     // --- Tipos ---
 
     const parseType = (): TypeNode => {
-        if (match(TokenType.NUMBER_TYPE)) return { kind: "primitive", name: "number" };
-        if (match(TokenType.CHAR_TYPE))   return { kind: "primitive", name: "char" };
-        if (match(TokenType.REF)) {
+        let baseType: TypeNode;
+        if (match(TokenType.NUMBER_TYPE)) {
+            baseType = { kind: "primitive", name: "number" };
+        } else if (match(TokenType.CHAR_TYPE)) {
+            baseType = { kind: "primitive", name: "char" };
+        } else if (match(TokenType.REF)) {
             expect(TokenType.LANGLE, "ref type");
             const name = expect(TokenType.IDENTIFIER, "ref type").value;
             expect(TokenType.RANGLE, "ref type");
-            return { kind: "ref", innerTypeName: name };
+            baseType = { kind: "ref", innerTypeName: name };
+        } else {
+            throw new Error(
+                `Tipo inesperado '${current().value}' na linha ${current().line}:${current().column}`
+            );
         }
-        throw new Error(
-            `Tipo inesperado '${current().value}' na linha ${current().line}:${current().column}`
-        );
+
+        // Check for array suffix: T[N]
+        if (current().type === TokenType.LBRACKET) {
+            pos++;
+            const sizeToken = expect(TokenType.NUMBER_LITERAL, "array size");
+            const size = parseInt(sizeToken.value, 10);
+            if (size < 1) {
+                throw new Error(
+                    `Tamanho de array deve ser >= 1, encontrou ${size} na linha ${sizeToken.line}:${sizeToken.column}`
+                );
+            }
+            expect(TokenType.RBRACKET, "array type");
+            return { kind: "array", elementType: baseType, size };
+        }
+
+        return baseType;
     };
 
     // --- Declaracoes top-level ---
@@ -171,11 +191,15 @@ export const parse = (tokens: Token[]): Program => {
             return { kind: "freeStatement", value };
         }
 
-        // variableDeclaration:  ident : type = expr
+        // variableDeclaration:  ident : type = expr  OR  ident : arrayType (no initializer)
         if (current().type === TokenType.IDENTIFIER && peek(1).type === TokenType.COLON) {
             const name = expect(TokenType.IDENTIFIER, "var name").value;
             expect(TokenType.COLON, "var type");
             const type = parseType();
+            if (type.kind === "array" && current().type !== TokenType.EQUALS) {
+                // Stack array: no initializer needed
+                return { kind: "variableDeclaration", name, type, initializer: { kind: "numberLiteral", value: 0 } };
+            }
             expect(TokenType.EQUALS, "var initializer");
             const initializer = parseExpression();
             return { kind: "variableDeclaration", name, type, initializer };
@@ -277,11 +301,17 @@ export const parse = (tokens: Token[]): Program => {
 
     const parsePostfix = (): Expression => {
         let expr = parsePrimary();
-        // field access: expr.field
-        while (current().type === TokenType.DOT) {
-            pos++;
-            const field = expect(TokenType.IDENTIFIER, "field access").value;
-            expr = { kind: "fieldAccess", object: expr, field };
+        while (current().type === TokenType.DOT || current().type === TokenType.LBRACKET) {
+            if (current().type === TokenType.DOT) {
+                pos++;
+                const field = expect(TokenType.IDENTIFIER, "field access").value;
+                expr = { kind: "fieldAccess", object: expr, field };
+            } else {
+                pos++; // consume [
+                const index = parseExpression();
+                expect(TokenType.RBRACKET, "index access");
+                expr = { kind: "indexAccess", object: expr, index };
+            }
         }
         return expr;
     };
@@ -294,10 +324,15 @@ export const parse = (tokens: Token[]): Program => {
             return { kind: "numberLiteral", value };
         }
 
-        // alloc(TypeName)
+        // alloc(TypeName) or alloc(N) for arrays
         if (current().type === TokenType.ALLOC) {
             pos++;
             expect(TokenType.LPAREN, "alloc");
+            if (current().type === TokenType.NUMBER_LITERAL) {
+                const countExpr = parseExpression();
+                expect(TokenType.RPAREN, "alloc");
+                return { kind: "allocExpression", typeName: "", elementCount: countExpr };
+            }
             const typeName = expect(TokenType.IDENTIFIER, "alloc type").value;
             expect(TokenType.RPAREN, "alloc");
             return { kind: "allocExpression", typeName };
