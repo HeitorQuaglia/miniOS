@@ -185,9 +185,21 @@ const compileExpression = (
         }
 
         case "allocExpression": {
-            const structInfo = ctx.structs.get(expr.typeName);
-            if (!structInfo) throw new Error(`Struct '${expr.typeName}' nao definida`);
-            emit(instructions, Opcode.ALLOC, [reg("R0"), imm(structInfo.sizeInBytes)]);
+            if (expr.elementCount) {
+                // Array heap alloc: alloc(N) allocates N * WORD_SIZE bytes
+                compileExpression(expr.elementCount, instructions, fnCtx, ctx);
+                // R0 = element count, multiply by WORD_SIZE
+                emit(instructions, Opcode.MOV, [reg("R1"), imm(WORD_SIZE_IN_BYTES)]);
+                emit(instructions, Opcode.MUL, [reg("R0"), reg("R1")]); // R0 = N * 4
+                // Move size to R1 so ALLOC can write result to R0
+                emit(instructions, Opcode.MOV, [reg("R1"), reg("R0")]);
+                emit(instructions, Opcode.ALLOC, [reg("R0"), reg("R1")]);
+            } else {
+                // Struct alloc (existing code)
+                const structInfo = ctx.structs.get(expr.typeName);
+                if (!structInfo) throw new Error(`Struct '${expr.typeName}' nao definida`);
+                emit(instructions, Opcode.ALLOC, [reg("R0"), imm(structInfo.sizeInBytes)]);
+            }
             break;
         }
 
