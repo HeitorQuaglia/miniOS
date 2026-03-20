@@ -6,7 +6,8 @@
 
 export type TypeNode =
     | { kind: "primitive"; name: "number" | "char" }
-    | { kind: "ref"; innerTypeName: string };
+    | { kind: "ref"; innerTypeName: string }
+    | { kind: "array"; elementType: TypeNode; size: number };
 
 // --- Declaracoes top-level ---
 
@@ -47,7 +48,7 @@ export interface VariableDeclaration {
 
 export interface Assignment {
     kind: "assignment";
-    target: Expression; // Identifier ou FieldAccess
+    target: Expression; // Identifier, FieldAccess, or IndexAccess
     value: Expression;
 }
 
@@ -119,9 +120,16 @@ export interface FieldAccess {
     field: string;
 }
 
+export interface IndexAccess {
+    kind: "indexAccess";
+    object: Expression;
+    index: Expression;
+}
+
 export interface AllocExpression {
     kind: "allocExpression";
     typeName: string;
+    elementCount?: Expression;
 }
 
 export type ComparisonOperator = "==" | "!=" | "<" | ">" | "<=" | ">=";
@@ -155,6 +163,7 @@ export type Expression =
     | UnaryExpression
     | FunctionCall
     | FieldAccess
+    | IndexAccess
     | AllocExpression;
 
 // --- Programa completo ---
