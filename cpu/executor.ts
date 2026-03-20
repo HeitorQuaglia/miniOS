@@ -1,6 +1,7 @@
 import { Opcode, type Instruction, type Operand } from "./types";
 import type { CpuState } from "./registers";
 import type { createMemory } from "../memory";
+import type { SyscallHandler } from "./syscall";
 
 type Memory = ReturnType<typeof createMemory>;
 
@@ -60,6 +61,7 @@ export const executeInstruction = (
     instruction: Instruction,
     state: CpuState,
     memory: Memory,
+    syscallHandler?: SyscallHandler,
 ) => {
     const { opcode, operands } = instruction;
 
@@ -222,6 +224,15 @@ export const executeInstruction = (
         }
 
         // ---- Sistema ----
+
+        case Opcode.SYSCALL: {
+            if (!syscallHandler) {
+                throw new Error("SYSCALL executada mas nenhum SyscallHandler foi configurado");
+            }
+            syscallHandler.handleSyscall(state, memory);
+            if (state.halted) return; // sys_exit
+            break;
+        }
 
         case Opcode.NOP:
             break;

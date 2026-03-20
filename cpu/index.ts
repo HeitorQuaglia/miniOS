@@ -2,11 +2,17 @@ import type { Instruction } from "./types";
 import { createCpuState, type CpuState } from "./registers";
 import { executeInstruction } from "./executor";
 import type { createMemory } from "../memory";
+import type { SyscallHandler } from "./syscall";
 
 type Memory = ReturnType<typeof createMemory>;
 
-export const createCpu = (memory: Memory) => {
+export interface CpuOptions {
+    syscallHandler?: SyscallHandler;
+}
+
+export const createCpu = (memory: Memory, options?: CpuOptions) => {
     const state: CpuState = createCpuState();
+    const syscallHandler = options?.syscallHandler;
 
     const run = (program: Instruction[]) => {
         state.programCounter = 0;
@@ -21,7 +27,7 @@ export const createCpu = (memory: Memory) => {
             }
 
             const currentInstruction = program[state.programCounter];
-            executeInstruction(currentInstruction, state, memory);
+            executeInstruction(currentInstruction, state, memory, syscallHandler);
         }
     };
 
@@ -35,7 +41,7 @@ export const createCpu = (memory: Memory) => {
         }
 
         const currentInstruction = program[state.programCounter];
-        executeInstruction(currentInstruction, state, memory);
+        executeInstruction(currentInstruction, state, memory, syscallHandler);
         return !state.halted;
     };
 
@@ -61,3 +67,5 @@ export const createCpu = (memory: Memory) => {
 export { Opcode, reg, imm, memAddr, memReg, fp, sp, hp } from "./types";
 export type { Instruction, Operand, GeneralRegister, SpecialRegister } from "./types";
 export type { CpuState } from "./registers";
+export { createSyscallHandler } from "./syscall";
+export type { SyscallHandler } from "./syscall";
