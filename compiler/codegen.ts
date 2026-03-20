@@ -166,6 +166,24 @@ const compileExpression = (
             break;
         }
 
+        case "indexAccess": {
+            // Load array base pointer -> R0
+            compileExpression(expr.object, instructions, fnCtx, ctx);
+            emit(instructions, Opcode.PUSH, [reg("R0")]); // save base
+            // Compile index expression -> R0
+            compileExpression(expr.index, instructions, fnCtx, ctx);
+            // R1 = index, compute byte offset
+            emit(instructions, Opcode.MOV, [reg("R1"), reg("R0")]);
+            emit(instructions, Opcode.MOV, [reg("R0"), imm(WORD_SIZE_IN_BYTES)]);
+            emit(instructions, Opcode.MUL, [reg("R1"), reg("R0")]); // R1 = index * 4
+            emit(instructions, Opcode.POP, [reg("R0")]); // R0 = base
+            emit(instructions, Opcode.ADD, [reg("R0"), reg("R1")]); // R0 = base + index*4
+            // Load value from computed address
+            emit(instructions, Opcode.MOV, [reg("R2"), reg("R0")]);
+            emit(instructions, Opcode.LOAD, [reg("R0"), memReg("R2")]);
+            break;
+        }
+
         case "allocExpression": {
             const structInfo = ctx.structs.get(expr.typeName);
             if (!structInfo) throw new Error(`Struct '${expr.typeName}' nao definida`);
@@ -352,6 +370,23 @@ const compileStatement = (
                 // R0 = endereco do campo, R2 = endereco, restaura valor
                 emit(instructions, Opcode.MOV, [reg("R2"), reg("R0")]);
                 emit(instructions, Opcode.POP, [reg("R0")]);
+                emit(instructions, Opcode.STORE, [memReg("R2"), reg("R0")]);
+            } else if (stmt.target.kind === "indexAccess") {
+                // arr[i] = expr
+                // 1. Compute destination address
+                compileExpression(stmt.target.object, instructions, fnCtx, ctx);
+                emit(instructions, Opcode.PUSH, [reg("R0")]); // save base
+                compileExpression(stmt.target.index, instructions, fnCtx, ctx);
+                emit(instructions, Opcode.MOV, [reg("R1"), reg("R0")]);
+                emit(instructions, Opcode.MOV, [reg("R0"), imm(WORD_SIZE_IN_BYTES)]);
+                emit(instructions, Opcode.MUL, [reg("R1"), reg("R0")]); // R1 = index * 4
+                emit(instructions, Opcode.POP, [reg("R0")]); // R0 = base
+                emit(instructions, Opcode.ADD, [reg("R0"), reg("R1")]); // R0 = dest addr
+                emit(instructions, Opcode.PUSH, [reg("R0")]); // save dest addr
+                // 2. Compile value
+                compileExpression(stmt.value, instructions, fnCtx, ctx);
+                // 3. Store
+                emit(instructions, Opcode.POP, [reg("R2")]); // R2 = dest addr
                 emit(instructions, Opcode.STORE, [memReg("R2"), reg("R0")]);
             } else if (stmt.target.kind === "identifier") {
                 // ident = expr
