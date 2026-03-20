@@ -1,4 +1,4 @@
-import { Opcode, reg, fp, imm, memReg, type Instruction } from "../cpu";
+import { Opcode, reg, fp, sp, imm, memReg, type Instruction } from "../cpu";
 import { WORD_SIZE_IN_BYTES } from "../memory";
 import type {
     Program, Declaration, FunctionDeclaration,
@@ -269,8 +269,8 @@ const resolveStructFromExpression = (
 // Vou estender o FunctionContext
 
 interface TypedFunctionContext extends FunctionContext {
-    paramTypes: Map<string, { kind: string; innerTypeName?: string }>;
-    localTypes: Map<string, { kind: string; innerTypeName?: string }>;
+    paramTypes: Map<string, { kind: string; innerTypeName?: string; arraySize?: number }>;
+    localTypes: Map<string, { kind: string; innerTypeName?: string; arraySize?: number }>;
 }
 
 const findParamType = (name: string, fnCtx: FunctionContext) => {
@@ -291,6 +291,30 @@ const compileStatement = (
 ) => {
     switch (stmt.kind) {
         case "variableDeclaration": {
+            if (stmt.type.kind === "array") {
+                const arraySize = stmt.type.size;
+                // Initialize array elements to 0
+                for (let i = 0; i < arraySize; i++) {
+                    emit(instructions, Opcode.PUSH, [imm(0)]);
+                }
+                // Compute address of first element
+                // After N PUSHes, SP points to the next free slot below the block.
+                // base = SP + WORD_SIZE = address of lowest element (a[0])
+                // arr[i] = base + i*4 grows upward through the block.
+                emit(instructions, Opcode.MOV, [reg("R0"), sp()]);
+                emit(instructions, Opcode.ADD, [reg("R0"), imm(WORD_SIZE_IN_BYTES)]);
+                // Push pointer as the variable
+                emit(instructions, Opcode.PUSH, [reg("R0")]);
+                // Register the variable location (the pointer)
+                const offset = fnCtx.nextLocalOffset;
+                fnCtx.nextLocalOffset -= WORD_SIZE_IN_BYTES;
+                fnCtx.locals.set(stmt.name, { offsetFromFP: offset });
+                fnCtx.localTypes.set(stmt.name, { kind: "array", arraySize });
+                // Account for the N words consumed by the array data
+                fnCtx.nextLocalOffset -= arraySize * WORD_SIZE_IN_BYTES;
+                break;
+            }
+
             // compila o inicializador → R0
             compileExpression(stmt.initializer, instructions, fnCtx, ctx);
             // empurra na stack como variavel local
