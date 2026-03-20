@@ -54,6 +54,7 @@ export enum Opcode {
     // sistema
     NOP  = "NOP",      // NOP            — nenhuma operacao
     HALT = "HALT",     // HALT           — para a execucao
+    SYSCALL = "SYSCALL",  // SYSCALL — chama handler de syscall (numero em R0)
 }
 
 export type GeneralRegister = "R0" | "R1" | "R2" | "R3";
