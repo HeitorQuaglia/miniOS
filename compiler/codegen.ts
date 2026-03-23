@@ -136,6 +136,16 @@ const compileExpression = (
 
             const syscallNum = SYSCALL_BUILTINS[expr.callee];
             if (syscallNum !== undefined) {
+                // Validate argument count
+                const expectedArity: Record<string, number> = {
+                    sys_read: 2, sys_write: 2, sys_exit: 1,
+                };
+                if (expr.arguments.length !== expectedArity[expr.callee]) {
+                    throw new Error(
+                        `'${expr.callee}' espera ${expectedArity[expr.callee]} argumentos, recebeu ${expr.arguments.length}`
+                    );
+                }
+
                 // Syscall built-in: emit inline MOV to registers + SYSCALL
                 // sys_read(buf, count): R1 = buf addr, R2 = count
                 // sys_write(buf, count): R1 = buf addr, R2 = count
@@ -145,8 +155,11 @@ const compileExpression = (
                     emit(instructions, Opcode.MOV, [reg("R1"), reg("R0")]);
                 }
                 if (expr.arguments.length >= 2) {
+                    // Save R1 before compiling second arg (expressions may clobber R1)
+                    emit(instructions, Opcode.PUSH, [reg("R1")]);
                     compileExpression(expr.arguments[1], instructions, fnCtx, ctx);
                     emit(instructions, Opcode.MOV, [reg("R2"), reg("R0")]);
+                    emit(instructions, Opcode.POP, [reg("R1")]);
                 }
                 emit(instructions, Opcode.MOV, [reg("R0"), imm(syscallNum)]);
                 emit(instructions, Opcode.SYSCALL, []);
@@ -353,21 +366,19 @@ const compileStatement = (
                 for (let i = 0; i < arraySize; i++) {
                     emit(instructions, Opcode.PUSH, [imm(0)]);
                 }
-                // Compute address of first element
-                // After N PUSHes, SP points to the next free slot below the block.
-                // base = SP + WORD_SIZE = address of lowest element (a[0])
-                // arr[i] = base + i*4 grows upward through the block.
+                // Account for N data words in offset tracking
+                fnCtx.nextLocalOffset -= arraySize * WORD_SIZE_IN_BYTES;
+                // Compute base address: after N PUSHes, SP points to the last written
+                // element (lowest address of the block). base = SP so that
+                // arr[i] = base + i*4 grows upward through the N-word block.
                 emit(instructions, Opcode.MOV, [reg("R0"), sp()]);
-                emit(instructions, Opcode.ADD, [reg("R0"), imm(WORD_SIZE_IN_BYTES)]);
                 // Push pointer as the variable
                 emit(instructions, Opcode.PUSH, [reg("R0")]);
-                // Register the variable location (the pointer)
+                // Register the pointer variable at the correct offset
                 const offset = fnCtx.nextLocalOffset;
                 fnCtx.nextLocalOffset -= WORD_SIZE_IN_BYTES;
                 fnCtx.locals.set(stmt.name, { offsetFromFP: offset });
                 fnCtx.localTypes.set(stmt.name, { kind: "array", arraySize });
-                // Account for the N words consumed by the array data
-                fnCtx.nextLocalOffset -= arraySize * WORD_SIZE_IN_BYTES;
                 break;
             }
 
