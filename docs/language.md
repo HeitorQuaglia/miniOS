@@ -27,7 +27,7 @@ A linguagem miniOS e uma linguagem imperativa com as seguintes caracteristicas:
 
 - **Tipagem estatica** — toda variavel tem um tipo declarado explicitamente
 - **Gerenciamento manual de memoria** — alocacao com `alloc`, liberacao com `free`
-- **Structs como unico tipo composto** — sem arrays, strings ou classes
+- **Structs e arrays como tipos compostos** — sem strings ou classes
 - **Funcoes como unica unidade de abstraccao** — sem closures, lambdas ou metodos
 - **Sem garbage collector** — o programador e responsavel por liberar memoria
 - **Compilacao em duas passadas** — permite recursao mutua entre funcoes
@@ -163,6 +163,22 @@ p: ref<Point> = alloc(Point)
 O tipo `ref` e parametrizado pelo nome do struct. O compilador usa essa informacao para:
 - Calcular offsets de campos em acessos `p.x`
 - Determinar o tamanho da alocacao em `alloc(Point)`
+
+### `T[N]` (Array)
+
+Array de tamanho fixo com N elementos do tipo T. O tamanho N deve ser um literal inteiro >= 1, definido em tempo de compilacao. Cada elemento ocupa 1 word (4 bytes).
+
+Alocacao no stack:
+```
+scores: number[4]
+```
+
+Alocacao no heap via `alloc`:
+```
+buf: number = alloc(64)
+```
+
+Acesso por indice: `arr[i]` (leitura e escrita). Sem bounds checking — acesso fora dos limites e comportamento indefinido.
 
 ---
 
@@ -616,6 +632,34 @@ O tamanho e calculado em tempo de compilacao: `numero_de_campos * WORD_SIZE (4)`
 
 Parenteses agrupam expressoes e alteram a precedencia.
 
+### Acesso por indice (Index Access)
+
+```
+arr[0]
+arr[i]
+arr[i + 1]
+```
+
+Acessa o elemento no indice `i` de um array. Compila para: calcula endereco base + indice * WORD_SIZE, depois LOAD. Tambem pode ser usado como alvo de atribuicao: `arr[i] = expr`.
+
+### Syscalls built-in
+
+```
+n: number = sys_read(buf, 5)
+sys_write(buf, n)
+sys_exit(0)
+```
+
+Funcoes built-in que emitem a instrucao `SYSCALL` diretamente. Nao sao funcoes reais — nao podem ser passadas como valores ou chamadas indiretamente.
+
+| Funcao | Args | Retorno (R0) |
+|---|---|---|
+| `sys_read(dest, count)` | R1 = endereco destino, R2 = quantidade | words lidos |
+| `sys_write(src, count)` | R1 = endereco fonte, R2 = quantidade | words escritos |
+| `sys_exit(code)` | R1 = codigo de saida | (nao retorna) |
+
+Convencao ARM: numero da syscall em R0, argumentos em R1-R3.
+
 ---
 
 ## Precedencia de operadores
@@ -631,7 +675,8 @@ Da menor para a maior precedencia:
 | 5 | `*` `/` | Esquerda | Multiplicacao e divisao |
 | 6 | `!` | Direita (prefixo) | Negacao logica |
 | 7 | `.` | Esquerda (posfixo) | Acesso a campo |
-| 8 | `()` | — | Chamada de funcao / agrupamento |
+| 8 | `[]` | Esquerda (posfixo) | Acesso por indice |
+| 9 | `()` | — | Chamada de funcao / agrupamento |
 
 **Exemplos de precedencia:**
 
@@ -901,15 +946,15 @@ Os enderecos dos jumps sao calculados via **patching**: o codegen emite um place
 
 1. **Sem literais negativos** — nao existe `-42` como literal. Use `0 - 42`
 2. **Sem strings** — o tipo `char` existe no lexer mas nao ha literais char nem operacoes sobre eles
-3. **Sem arrays** — o unico tipo composto e `struct`
-4. **Sem variaveis globais** — toda variavel e local a uma funcao
-5. **Sem `break`/`continue`** — loops so terminam pela condicao do `while`
-6. **Sem `for`** — use `while` com variavel de controle
-7. **Comparacoes nao encadeaveis** — `a < b < c` e parseado como `(a < b) < c`, nao como `a < b && b < c`
-8. **Sem verificacao de uso apos `free`** — acessar um ponteiro liberado compila e executa, mas os dados foram zerados
-9. **Sem retorno implicito de tipo** — o compilador nao verifica se uma funcao com tipo de retorno realmente retorna em todos os caminhos
-10. **Sem sobrecarga de funcoes** — cada funcao deve ter nome unico
-11. **Sem modulos/imports** — todo o programa esta em um unico arquivo fonte
+3. **Sem variaveis globais** — toda variavel e local a uma funcao
+4. **Sem `break`/`continue`** — loops so terminam pela condicao do `while`
+5. **Sem `for`** — use `while` com variavel de controle
+6. **Comparacoes nao encadeaveis** — `a < b < c` e parseado como `(a < b) < c`, nao como `a < b && b < c`
+7. **Sem verificacao de uso apos `free`** — acessar um ponteiro liberado compila e executa, mas os dados foram zerados
+8. **Sem retorno implicito de tipo** — o compilador nao verifica se uma funcao com tipo de retorno realmente retorna em todos os caminhos
+9. **Sem sobrecarga de funcoes** — cada funcao deve ter nome unico
+10. **Sem modulos/imports** — todo o programa esta em um unico arquivo fonte
+11. **Sem bounds checking em arrays** — acesso fora dos limites causa comportamento indefinido
 
 ---
 
@@ -1070,5 +1115,20 @@ fn isOdd(n: number): number {
 fn main(): number {
     return isEven(10)
     // R0 = 1
+}
+```
+
+### Arrays e syscalls
+
+```
+fn main(): number {
+    arr: number[5]
+    i: number = 0
+    while (i < 5) {
+        arr[i] = i * 10
+        i = i + 1
+    }
+    return arr[0] + arr[4]
+    // R0 = 40
 }
 ```
