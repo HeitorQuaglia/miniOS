@@ -1,0 +1,7 @@
+fn main(): number {
+    buf: char[5]
+    n: number = sys_read(buf, 5)
+    sys_write(buf, n)
+    sys_exit(0)
+    return 0
+}
