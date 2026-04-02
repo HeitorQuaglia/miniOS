@@ -23,6 +23,7 @@ miniOS/
 │   ├── types.ts          # Opcodes, operandos, modos de endereçamento
 │   ├── registers.ts      # Estado da CPU (R0-R3, PC, ZF, NF)
 │   ├── executor.ts       # Execução de cada instrução
+│   ├── syscall.ts        # SyscallHandler: sys_read, sys_write, sys_exit
 │   └── index.ts          # Fachada: createCpu()
 │
 ├── compiler/             # Compilador da linguagem de alto nível
@@ -34,7 +35,9 @@ miniOS/
 │   └── index.ts          # Fachada: compile()
 │
 ├── examples/
-│   └── point.example     # Programa demonstrando structs, heap e funções
+│   ├── point.example     # Programa demonstrando structs, heap e funções
+│   ├── array.example     # Arrays na stack com leitura e escrita indexada
+│   └── syscall.example   # I/O via sys_read/sys_write e saída via sys_exit
 │
 └── index.ts              # Re-exporta tudo
 ```
@@ -120,7 +123,7 @@ Se HP ultrapassar SP, uma exceção de **colisão de memória** é lançada.
 | `memoryDirect` | `[100]` | Endereço fixo na memória |
 | `memoryRegister` | `[R2]` | Endereço contido no registrador |
 
-### Instruções (20 opcodes)
+### Instruções (21 opcodes)
 
 **Transferência de dados:**
 | Instrução | Operação |
@@ -170,6 +173,7 @@ Se HP ultrapassar SP, uma exceção de **colisão de memória** é lançada.
 |---|---|
 | `NOP` | Nenhuma operação |
 | `HALT` | Para a execução |
+| `SYSCALL` | Chama o handler de syscall (número em R0, args em R1/R2) |
 
 ## A linguagem de alto nível
 
@@ -213,6 +217,18 @@ fn main() {
     p.x = sum
     p.y = factorial(5)
     free(p)
+
+    // Arrays na stack
+    arr: number[3]
+    arr[0] = 10
+    arr[1] = 20
+    arr[2] = 30
+
+    // Syscalls
+    buf: char[5]
+    n: number = sys_read(buf, 5)
+    sys_write(buf, n)
+    sys_exit(0)
 }
 ```
 
@@ -229,6 +245,8 @@ fn main() {
 - **Acesso a campos** via referências (`ptr.campo`)
 - **Chamadas de função** com passagem por valor
 - **Comentários** `//`, `#` (linha) e `/* */` (bloco)
+- **Arrays** na stack com tamanho fixo (`nome: tipo[N]`) e acesso indexado (`arr[i]`)
+- **Pseudo-syscalls** `sys_read`, `sys_write` e `sys_exit` para I/O e controle de processo
 
 ### Convenção de chamada
 1. Caller empurra argumentos **da direita para a esquerda**
@@ -313,6 +331,32 @@ cpu.run(program);
 console.log(cpu.getState().generalPurpose.R0); // 30
 ```
 
+### Usando syscalls
+
+```typescript
+import { createMemory, createCpu, createSyscallHandler, compile } from "minios";
+
+const source = `
+fn main(): number {
+    buf: char[5]
+    n: number = sys_read(buf, 5)
+    sys_write(buf, n)
+    sys_exit(0)
+    return 0
+}
+`;
+
+const memory = createMemory();
+const handler = createSyscallHandler();
+handler.inputBuffer = [72, 105, 33, 10, 0]; // "Hi!\n\0"
+
+const cpu = createCpu(memory, { syscallHandler: handler });
+cpu.run(compile(source));
+
+console.log(handler.outputBuffer); // [72, 105, 33, 10, 0]
+console.log(handler.exitCode);     // 0
+```
+
 ### Executando passo a passo
 
 ```typescript
@@ -357,13 +401,31 @@ dump()
 
 ### CPU
 ```typescript
-createCpu(memory)
+createCpu(memory, options?: { syscallHandler?: SyscallHandler })
 
 run(program)           // executa até HALT
 step(program): boolean // executa 1 instrução, retorna false se HALT
 getState(): CpuState   // { programCounter, zeroFlag, negativeFlag, halted, generalPurpose }
 reset()
 ```
+
+### SyscallHandler
+```typescript
+createSyscallHandler(): SyscallHandler
+
+// Campos acessíveis após execução:
+handler.inputBuffer   // number[] — dados fornecidos para sys_read
+handler.outputBuffer  // number[] — dados produzidos por sys_write
+handler.exitCode      // number | null — código passado a sys_exit
+```
+
+**Syscalls suportadas:**
+
+| Número | Pseudo-syscall | R1 | R2 | Retorno (R0) |
+|---|---|---|---|---|
+| 0 | `sys_read` | endereço do buffer | contagem | words lidas |
+| 1 | `sys_write` | endereço do buffer | contagem | words escritas |
+| 2 | `sys_exit` | código de saída | — | — |
 
 ### Compiler
 ```typescript
